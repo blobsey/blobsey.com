@@ -1,0 +1,9 @@
+{
+  "acknowledged-issue-numbers": [
+    34892
+  ],
+  "hosted-zone:account=012294203452:domainName=blobsey.com:region=us-east-1": {
+    "Id": "/hostedzone/Z08193001LP9ULO260ZHN",
+    "Name": "blobsey.com."
+  }
+}

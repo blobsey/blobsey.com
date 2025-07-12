@@ -1,6 +1,8 @@
 # CDK 
 *.js
 *.d.ts
+dns-records.json
+.env
 cdk/node_modules
 cdk/.cdk.staging
 cdk/cdk.out
