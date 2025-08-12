@@ -5,6 +5,15 @@
     <title>blobsey</title>
 </head>
 <body>
-    <p>🚧UNDER CONSTRUCTION🚧</p>
+    <h1>Welcome to blobsey.com</h1>
+    <button id="test-button">Press me and check your console, hehe</button>
+
+    <script type="module">
+        import init, { hello_world } from './wasm/blobsey_wasm.js';
+
+        await init();
+
+        document.getElementById('test-button').addEventListener('click', hello_world);
+    </script>
 </body>
 </html>

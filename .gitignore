@@ -7,3 +7,7 @@ cdk/node_modules
 cdk/.cdk.staging
 cdk/cdk.out
 cdk.context.json
+
+# Rust
+wasm/target
+wasm/.tools
