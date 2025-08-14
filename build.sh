@@ -68,28 +68,34 @@ WORKSPACE_DIR=$(dirname "$BUILD_SCRIPT_PATH")
 if [[ $BUILD_WASM -eq 1 ]]; then
     echo -e "${YELLOW}Building WASM...${NC}"
     cd "$WORKSPACE_DIR/wasm"
+
+    # Check if wasm-pack exists, install if not
+    if [[ ! -f ".tools/bin/wasm-pack" ]]; then
+        echo -e "${YELLOW}Installing wasm-pack (this is a one-time thing)${NC}"
+        mkdir -p .tools
+        cargo install --root .tools --quiet wasm-pack
+        echo -e "${GREEN}Installed wasm-pack successfully!${NC}"
+    fi
+
     .tools/bin/wasm-pack build \
         --target web \
         --out-dir "$WORKSPACE_DIR/website/wasm"
     echo -e "${GREEN}Built WASM successfully!${NC}\n"
 fi
 
-if [[ $BUILD_CDK -eq 1 ]]; then
+# Don't run synth if the --deploy flag is set, because `cdk deploy`
+# synthesizes implicitly
+if [[ $BUILD_CDK -eq 1 && $DEPLOY -ne 1 ]]; then
     echo -e "${YELLOW}Building CDK...${NC}"
     cd "$WORKSPACE_DIR/cdk"
-    npm run build
+    bunx cdk synth
 
-    # Only synth if not deploying. Normally cdk deploy would
-    # synthesize so if we're deploying we wanna skip this
-    if [[ $DEPLOY -eq 0 ]]; then
-        npx cdk synth
-    fi
     echo -e "${GREEN}Built CDK successfully!${NC}\n"
 fi
 
 if [[ $DEPLOY -eq 1 ]]; then
     echo -e "${YELLOW}Deploying...${NC}"
     cd "$WORKSPACE_DIR/cdk"
-    npx cdk deploy --all
+    bunx cdk deploy --all
     echo -e "${GREEN}Deployed successfully!${NC}\n"
 fi

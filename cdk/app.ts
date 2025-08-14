@@ -1,5 +1,5 @@
-import { DomainStack } from './lib/DomainStack';
-import { WebsiteStack } from './lib/WebsiteStack';
+import { DomainStack } from './lib/domain-stack';
+import { WebsiteStack } from './lib/website-stack';
 import { App } from 'aws-cdk-lib';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
