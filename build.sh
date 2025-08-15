@@ -69,18 +69,23 @@ if [[ $BUILD_WASM -eq 1 ]]; then
     echo -e "${YELLOW}Building WASM...${NC}"
     cd "$WORKSPACE_DIR/wasm"
 
-    # Check if wasm-pack exists, install if not
-    if [[ ! -f ".tools/bin/wasm-pack" ]]; then
-        echo -e "${YELLOW}Installing wasm-pack (this is a one-time thing)${NC}"
-        mkdir -p .tools
-        cargo install --root .tools --quiet wasm-pack
-        echo -e "${GREEN}Installed wasm-pack successfully!${NC}"
+    WASM_TARGET_DIR="$WORKSPACE_DIR/wasm/target/wasm32-unknown-unknown"
+    PACKAGE_NAME="$(cargo metadata --no-deps --format-version 1 | \
+        jq -r '.packages[0].name')"
+    WASM_FILE="$PACKAGE_NAME.wasm"
+
+    if [[ $DEPLOY -eq 1 ]]; then
+        # For --deploy, build in release mode
+        cargo build --target wasm32-unknown-unknown --release
+        cp "$WASM_TARGET_DIR/release/$WASM_FILE" "$WORKSPACE_DIR/website/wasm/"
+    else
+        # For normal builds, build with debug symbols
+        cargo build --target wasm32-unknown-unknown
+        cp "$WASM_TARGET_DIR/debug/$WASM_FILE" "$WORKSPACE_DIR/website/wasm/"
     fi
 
-    .tools/bin/wasm-pack build \
-        --target web \
-        --out-dir "$WORKSPACE_DIR/website/wasm"
-    echo -e "${GREEN}Built WASM successfully!${NC}\n"
+    echo -e "${GREEN}Built WASM successfully, and copied ${WASM_FILE}"
+    echo -e "to ${BLUE}${WORKSPACE_DIR}website/wasm/${NC}\n"
 fi
 
 # Don't run synth if the --deploy flag is set, because `cdk deploy`

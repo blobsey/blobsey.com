@@ -1,19 +1,29 @@
-<!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <title>blobsey</title>
+    <meta charset="utf-8">
+    <title>TITLE</title>
+    <style>
+        html,
+        body,
+        canvas {
+            margin: 0px;
+            padding: 0px;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            position: absolute;
+            background: black;
+            z-index: 0;
+        }
+    </style>
 </head>
+
 <body>
-    <h1>Welcome to blobsey.com</h1>
-    <button id="test-button">Press me and check your console, hehe</button>
-
-    <script type="module">
-        import init, { hello_world } from './wasm/blobsey_wasm.js';
-
-        await init();
-
-        document.getElementById('test-button').addEventListener('click', hello_world);
-    </script>
+    <canvas id="glcanvas" tabindex='1'></canvas>
+    <!-- Minified and statically hosted version of https://github.com/not-fl3/macroquad/blob/master/js/mq_js_bundle.js -->
+    <script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
+    <script>load("wasm/blobsey-wasm.wasm");</script> <!-- Your compiled wasm file -->
 </body>
+
 </html>
