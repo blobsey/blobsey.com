@@ -15,44 +15,26 @@ usage() {
     echo -e "${BOLD}${BLUE}build script${NC}"
     echo ""
     echo -e "${BOLD}OPTIONS:${NC}"
-    echo -e "    ${GREEN}-w, --wasm${NC}      Build WASM only"
-    echo -e "    ${GREEN}-c, --cdk${NC}       Build CDK only"
-    echo -e "    ${GREEN}-a, --all${NC}       Build WASM + CDK"
+    echo -e "    ${GREEN}-w, --watch${NC}     Start a hot-reloading session"
+    echo                 "                    served on http://localhost:8000/"
     echo -e "    ${GREEN}-d, --deploy${NC}    Build everything and deploy"
     echo -e "    ${GREEN}-h, --help${NC}      Show this help"
     echo ""
     exit 1
 }
 
-# Show usage if no arguments provided
-if [[ $# -eq 0 ]]; then
-    usage
-fi
-
 # Options configurable through args
-BUILD_WASM=0  # --wasm
-BUILD_CDK=0  # --cdk
+WATCH=0  # --watch
 DEPLOY=0  # --deploy
 
 # Read args
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -w|--wasm)
-            BUILD_WASM=1
-            shift
-            ;;
-        -c|--cdk)
-            BUILD_CDK=1
-            shift
-            ;;
-        -a|--all)
-            BUILD_WASM=1
-            BUILD_CDK=1
+        -w|--watch)
+            WATCH=1
             shift
             ;;
         -d|--deploy)
-            BUILD_WASM=1
-            BUILD_CDK=1
             DEPLOY=1
             shift
             ;;
@@ -65,42 +47,57 @@ done
 BUILD_SCRIPT_PATH=$(realpath "$0")
 WORKSPACE_DIR=$(dirname "$BUILD_SCRIPT_PATH")
 
-if [[ $BUILD_WASM -eq 1 ]]; then
-    echo -e "${YELLOW}Building WASM...${NC}"
-    cd "$WORKSPACE_DIR/wasm"
+echo -e "${YELLOW}Building WASM...${NC}"
+cd "$WORKSPACE_DIR/wasm"
 
-    WASM_TARGET_DIR="$WORKSPACE_DIR/wasm/target/wasm32-unknown-unknown"
-    PACKAGE_NAME="$(cargo metadata --no-deps --format-version 1 | \
-        jq -r '.packages[0].name')"
-    WASM_FILE="$PACKAGE_NAME.wasm"
+WASM_TARGET_DIR="$WORKSPACE_DIR/wasm/target/wasm32-unknown-unknown"
+PACKAGE_NAME="$(cargo metadata --no-deps --format-version 1 | \
+    jq -r '.packages[0].name')"
+WASM_FILE="$PACKAGE_NAME.wasm"
 
-    if [[ $DEPLOY -eq 1 ]]; then
-        # For --deploy, build in release mode
-        cargo build --target wasm32-unknown-unknown --release
-        cp "$WASM_TARGET_DIR/release/$WASM_FILE" "$WORKSPACE_DIR/website/wasm/"
-    else
-        # For normal builds, build with debug symbols
-        cargo build --target wasm32-unknown-unknown
-        cp "$WASM_TARGET_DIR/debug/$WASM_FILE" "$WORKSPACE_DIR/website/wasm/"
-    fi
-
-    echo -e "${GREEN}Built WASM successfully, and copied ${WASM_FILE}"
-    echo -e "to ${BLUE}${WORKSPACE_DIR}website/wasm/${NC}\n"
+if [[ $DEPLOY -eq 1 ]]; then
+    # For --deploy, build in release mode
+    cargo build --target wasm32-unknown-unknown --release
+    cp "$WASM_TARGET_DIR/release/$WASM_FILE" "$WORKSPACE_DIR/website/wasm/"
+else
+    # For normal builds, build with debug symbols
+    cargo build --target wasm32-unknown-unknown
+    cp "$WASM_TARGET_DIR/debug/$WASM_FILE" "$WORKSPACE_DIR/website/wasm/"
 fi
 
-# Don't run synth if the --deploy flag is set, because `cdk deploy`
-# synthesizes implicitly
-if [[ $BUILD_CDK -eq 1 && $DEPLOY -ne 1 ]]; then
-    echo -e "${YELLOW}Building CDK...${NC}"
-    cd "$WORKSPACE_DIR/cdk"
-    bunx cdk synth
+echo -e "${GREEN}Built WASM successfully, and copied ${WASM_FILE}"
+echo -e "to ${BLUE}${WORKSPACE_DIR}/website/wasm/${NC}\n"
 
-    echo -e "${GREEN}Built CDK successfully!${NC}\n"
-fi
-
+# If --deploy specified, deploy da CDK
 if [[ $DEPLOY -eq 1 ]]; then
     echo -e "${YELLOW}Deploying...${NC}"
     cd "$WORKSPACE_DIR/cdk"
     bunx cdk deploy --all
     echo -e "${GREEN}Deployed successfully!${NC}\n"
+fi
+
+# If --watch specified, start bunx serve and cargo-watch
+if [[ $WATCH -eq 1 ]]; then
+    echo -e "${YELLOW}Starting watch mode...${NC}"
+    CARGO_WATCH="$WORKSPACE_DIR/wasm/.tools/bin/cargo-watch"
+    if [[ ! -f "$CARGO_WATCH" ]]; then
+        echo -e "${YELLOW} Fetching cargo-watch (this is a one-time process)${NC}"
+        mkdir -p "$WORKSPACE_DIR/wasm/.tools"
+        cargo install --root "$WORKSPACE_DIR/wasm/.tools" --quiet cargo-watch
+    fi
+
+    # Start server on localhost:8000 in background
+    bunx serve --no-clipboard -p 8000 -L "$WORKSPACE_DIR/website" &
+
+    $CARGO_WATCH -x "build --target wasm32-unknown-unknown" \
+        -s "cp $WASM_TARGET_DIR/debug/$WASM_FILE $WORKSPACE_DIR/website/wasm/"
+fi
+
+# If not --watch or --deploy specified, just synth
+if [[ $WATCH -ne 1 && $DEPLOY -ne 1 ]]; then
+    echo -e "${YELLOW}Building CDK...${NC}"
+    cd "$WORKSPACE_DIR/cdk"
+    bunx cdk synth
+
+    echo -e "${GREEN}Built CDK successfully!${NC}\n"
 fi

@@ -60,14 +60,9 @@ DOMAIN_NAME="your-website.com"
 
 ## Notes
 
-If you wanna spin up the site locally, make sure to build once first:
+If you wanna spin up the site locally:
 ```bash
-./build.sh --all
-```
-
-Then you can load up the website using any ol' HTTP server. I like Bun's `bunx serve`:
-```bash
-bunx serve website -p 8000
+./build.sh --watch
 ```
 
 Then go to http://localhost:8000

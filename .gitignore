@@ -10,7 +10,7 @@ cdk.context.json
 
 # Rust
 wasm/target
-wasm/.tools
+wasm/.tools/
 
 # Static files
 website/wasm/
