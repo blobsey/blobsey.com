@@ -55,6 +55,9 @@ PACKAGE_NAME="$(cargo metadata --no-deps --format-version 1 | \
     jq -r '.packages[0].name')"
 WASM_FILE="$PACKAGE_NAME.wasm"
 
+# Build WASM
+echo "Running 'cargo fmt'..."
+cargo fmt
 if [[ $DEPLOY -eq 1 ]]; then
     # For --deploy, build in release mode
     cargo build --target wasm32-unknown-unknown --release
