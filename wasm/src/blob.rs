@@ -1,10 +1,10 @@
 // Blob constants
-const BLOB_STIFFNESS: f32 = 0.5;
-const BLOB_NUM_PARTICLES: usize = 64;
+const BLOB_STIFFNESS: f32 = 1.0;
 const BLOB_RADIUS: f32 = 100.0;
-
-// Angular increment between vertices in radians (2π/n for regular n-gon)
-const ANGLE_STEP: f32 = 2.0 * std::f32::consts::PI / BLOB_NUM_PARTICLES as f32;
+const BLOB_GRID_SPACING: f32 = 5.0;
+const BLOB_MAX_SPRING_REST_LENGTH: f32 =
+    BLOB_GRID_SPACING * std::f32::consts::SQRT_2; // Connect to diagonal neighbors
+const BLOB_BOUNCINESS: f32 = 0.2;
 
 use crate::constants::*;
 use macroquad::{
@@ -17,8 +17,8 @@ use macroquad::{
 /* The blob is made up of several particles, each connected to their neighbors
 by springs */
 pub struct Blob {
-    particles: [Particle; BLOB_NUM_PARTICLES], // Fixed size, hope I won't regret this!
-    springs: [Spring; BLOB_NUM_PARTICLES],
+    particles: Vec<Particle>,
+    springs: Vec<Spring>,
 }
 
 struct Particle {
@@ -28,12 +28,9 @@ struct Particle {
 }
 
 impl Particle {
-    fn new(origin: Vec2, angle_radians: f32) -> Self {
+    fn new(pos: Vec2) -> Self {
         Particle {
-            pos: Vec2::new(
-                BLOB_RADIUS * angle_radians.cos() + origin.x,
-                BLOB_RADIUS * angle_radians.sin() + origin.y,
-            ),
+            pos: pos,
             velocity: Vec2::new(0.0, 0.0),
             mass: 1.0,
         }
@@ -48,18 +45,44 @@ struct Spring {
 
 impl Blob {
     pub fn new(origin: Vec2) -> Blob {
-        // Make a bunch of particles, BLOB_RADIUS distance away from origin
-        let particles = std::array::from_fn(|i| Particle::new(origin, (i as f32) * ANGLE_STEP));
+        // Create particles in a grid pattern within a circle
+        let mut particles = Vec::new();
 
-        let springs = std::array::from_fn(|i| {
-            let next = (i + 1) % BLOB_NUM_PARTICLES; // wrap around for last particle
-            let rest_length = (particles[i].pos - particles[next].pos).length();
-            Spring {
-                particle_a: i,
-                particle_b: next,
-                rest_length: rest_length,
+        /* Divide the area to fill into "steps" based on grid spacing and calculate
+        how many "steps" needed to reach the bounds of the blob's bounding box */
+        let half_grid_steps = (BLOB_RADIUS / BLOB_GRID_SPACING) as i32;
+
+        for x in -half_grid_steps..half_grid_steps {
+            for y in -half_grid_steps..half_grid_steps {
+                // Calculate actual position based on which "step" we're on
+                let grid_x = x as f32 * BLOB_GRID_SPACING;
+                let grid_y = y as f32 * BLOB_GRID_SPACING;
+
+                // Check if particle is within circular radius
+                let distance_from_center =
+                    (grid_x * grid_x + grid_y * grid_y).sqrt();
+                if distance_from_center <= BLOB_RADIUS {
+                    let particle_pos = origin + Vec2::new(grid_x, grid_y);
+                    particles.push(Particle::new(particle_pos));
+                }
             }
-        });
+        }
+
+        /* Connect each particle with all other possible particles, i.e. any
+        particle which is <= BLOB_MAX_SPRING_REST_LENGTH distance away  */
+        let mut springs = Vec::new();
+        for i in 0..particles.len() {
+            for j in (i + 1)..particles.len() {
+                let distance = (particles[i].pos - particles[j].pos).length();
+                if distance <= BLOB_MAX_SPRING_REST_LENGTH {
+                    springs.push(Spring {
+                        particle_a: i,
+                        particle_b: j,
+                        rest_length: distance as f32,
+                    });
+                }
+            }
+        }
 
         Blob {
             particles: particles,
@@ -68,56 +91,58 @@ impl Blob {
     }
 
     pub fn update(&mut self, dt: f32) {
-        let screen_width = screen_width();
-        let screen_height = screen_height();
-
         // Apply gravity to all particles' velocities
         for particle in &mut self.particles {
             particle.velocity.y += GRAVITY * dt;
         }
 
-        // Apply spring forces to all particles
+        // Apply all spring forces
         for spring in &self.springs {
             let pos_a = self.particles[spring.particle_a].pos;
             let pos_b = self.particles[spring.particle_b].pos;
-            let displacement = pos_a - pos_b;
-            let distance = displacement.length();
 
-            if distance > 0.0 { // Avoid division by zero
-                let force_magnitude = BLOB_STIFFNESS * (distance - spring.rest_length);
-                let force_direction = displacement / distance; // normalize
-                let force = force_direction * force_magnitude;
+            // Calculate the force vector
+            let connection_vector = (pos_a - pos_b);
+            let length = connection_vector.length();
+            if length != 0.0 {
+            let direction_vector = connection_vector / length; // vector of length 1
+            // Hooke's law, F = k * (length - rest_length)
+            let magnitude = BLOB_STIFFNESS * (length - spring.rest_length);
+            let force_vector = direction_vector * magnitude;
 
-                // Apply force to particle A (towards B)
-                self.particles[spring.particle_a].velocity -=
-                    force * dt / self.particles[spring.particle_a].mass;
+            let mass_a = self.particles[spring.particle_a].mass;
+            let mass_b = self.particles[spring.particle_b].mass;
 
-                // Apply equal and opposite force to particle B (towards A)
-                self.particles[spring.particle_b].velocity +=
-                    force * dt / self.particles[spring.particle_b].mass;
+            /* Apply force, once to the first particle, and apply an equal
+            but opposite force to the second particle */
+            self.particles[spring.particle_a].velocity -=
+                force_vector * dt / mass_a;
+            self.particles[spring.particle_b].velocity +=
+                force_vector * dt / mass_b;
             }
         }
+
+        let screen_width = screen_width();
+        let screen_height = screen_height();
 
         // Update particle positions based on velocities
         for particle in &mut self.particles {
             particle.pos += particle.velocity * dt;
-
-            // Boundary collisions with damping
             if particle.pos.x < 0.0 {
                 particle.pos.x = 0.0;
-                particle.velocity.x = -particle.velocity.x * 0.1; // bounce with damping
+                particle.velocity.x *= -BLOB_BOUNCINESS;
             }
             if particle.pos.x > screen_width {
                 particle.pos.x = screen_width;
-                particle.velocity.x = -particle.velocity.x * 0.1;
+                particle.velocity.x *= -BLOB_BOUNCINESS;
             }
             if particle.pos.y < 0.0 {
                 particle.pos.y = 0.0;
-                particle.velocity.y = -particle.velocity.y * 0.1;
+                particle.velocity.y *= -BLOB_BOUNCINESS;
             }
             if particle.pos.y > screen_height {
                 particle.pos.y = screen_height;
-                particle.velocity.y = -particle.velocity.y * 0.1;
+                particle.velocity.y *= -BLOB_BOUNCINESS;
             }
         }
     }
