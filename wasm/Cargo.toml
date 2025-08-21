@@ -6,6 +6,9 @@ edition = "2024"
 [dependencies]
 macroquad = "0.4"
 
+[target.wasm32-unknown-unknown.dependencies]
+sapp-console-log = "0.1"
+
 [dependencies.web-sys]
 version = "0.3"
 features = [

@@ -31,6 +31,7 @@ name = "blobsey-wasm"
 version = "0.1.0"
 dependencies = [
  "macroquad",
+ "sapp-console-log",
  "web-sys",
 ]
 
@@ -289,6 +290,22 @@ name = "rustversion"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
+
+[[package]]
+name = "sapp-console-log"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b3fd82df9296022228d61a3b421b4303fb6cceb960e6222c16b2efc21e81ee9"
+dependencies = [
+ "log",
+ "sapp-wasm",
+]
+
+[[package]]
+name = "sapp-wasm"
+version = "0.1.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00e859e8645a3bcb85aecd40bab883438e4105f21b21bccbeac2348760f508bb"
 
 [[package]]
 name = "simd-adler32"
