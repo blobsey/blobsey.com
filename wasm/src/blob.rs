@@ -1,9 +1,9 @@
 // Blob constants
-const BLOB_STIFFNESS: f32 = 25.0;
+const BLOB_STIFFNESS: f32 = 150.0;
 const BLOB_BOUNCINESS: f32 = 0.50; // Sane values are 0.0 - 1.0
-const BLOB_RADIUS: f32 = 100.0;
-const BLOB_MAX_OUTER_CHORD_LENGTH: f32 = 50.0;
-const BLOB_PARTICLE_RADIUS: f32 = 10.0;
+const BLOB_RADIUS: f32 = 180.0;
+const BLOB_MAX_OUTER_CHORD_LENGTH: f32 = 60.0;
+const BLOB_PARTICLE_RADIUS: f32 = 23.5;
 const BLOB_PARTICLE_MASS: f32 = 0.1;
 
 use crate::constants::*;
@@ -26,7 +26,6 @@ pub struct Blob {
 struct Particle {
     pos: Vec2,
     prev_pos: Vec2, // For Verlet integration
-    mass: f32,
 }
 
 struct Spring {
@@ -71,7 +70,6 @@ impl Blob {
                 current_layer.push(Particle {
                     pos: Vec2 { x: x, y: y },
                     prev_pos: Vec2 { x: x, y: y },
-                    mass: BLOB_PARTICLE_MASS,
                 });
             }
             particles_per_layer.push(current_layer);
@@ -146,14 +144,11 @@ impl Blob {
         particles_per_layer.push(vec![Particle {
             pos: origin,
             prev_pos: origin,
-            mass: BLOB_PARTICLE_MASS,
         }]);
 
         // Flatten all particles
-        let particles: Vec<Particle> = particles_per_layer
-            .into_iter()
-            .flatten()
-            .collect();
+        let particles: Vec<Particle> =
+            particles_per_layer.into_iter().flatten().collect();
 
         // Connect center (last particle) to innermost ring
         let center_idx = particles.len() - 1;
@@ -163,42 +158,11 @@ impl Blob {
             springs.push(Spring {
                 particle_a: center_idx,
                 particle_b: inner_idx,
-                rest_length: (particles[center_idx].pos - particles[inner_idx].pos).length(),
+                rest_length: (particles[center_idx].pos
+                    - particles[inner_idx].pos)
+                    .length(),
             });
         }
-        // let mut particles: Vec<Particle> = Vec::new();
-        // let offset = BLOB_RADIUS as i32 / 2;
-        // let step = 50;
-        // for i in (-offset..offset).step_by(step) {
-        //     for j in (-offset..offset).step_by(step) {
-        //         particles.push(Particle {
-        //             pos: Vec2 {
-        //                 x: origin.x + i as f32,
-        //                 y: origin.y + j as f32,
-        //             },
-        //             prev_pos: Vec2 {
-        //                 x: origin.x + i as f32,
-        //                 y: origin.y + j as f32,
-        //             },
-        //             mass: BLOB_PARTICLE_MASS,
-        //         });
-        //     }
-        // }
-
-        // let mut springs: Vec<Spring> = Vec::new();
-        // for i in 0..particles.len() {
-        //     let max_rest_len = SQRT_2 * step as f32;
-        //     for j in (i + 1)..particles.len() {
-        //         let distance = (particles[i].pos - particles[j].pos).length();
-        //         if distance <= max_rest_len {
-        //             springs.push(Spring {
-        //                 particle_a: i,
-        //                 particle_b: j,
-        //                 rest_length: distance,
-        //             });
-        //         }
-        //     }
-        // }
 
         Blob {
             particles: particles,
@@ -230,44 +194,24 @@ impl Blob {
 
         // Gravity
         for i in 0..forces.len() {
-            forces[i].y += GRAVITY * &self.particles[i].mass;
-        }
-
-        // Particle collision forces
-        for i in 0..self.particles.len() {
-            for j in (i + 1)..self.particles.len() {
-                let particle_a = &self.particles[i];
-                let particle_b = &self.particles[j];
-
-                let collision_vec = particle_a.pos - particle_b.pos;
-                let distance = collision_vec.length();
-                let min_distance = 2.0 * BLOB_PARTICLE_RADIUS;
-
-                if distance < min_distance && distance > 0.0 {
-                    let unit_vec = collision_vec / distance;
-                    let overlap = min_distance - distance;
-                    let force_magnitude = overlap * BLOB_STIFFNESS * 2.0; // Stronger repulsion
-                    let force_vec = unit_vec * force_magnitude;
-
-                    forces[i] += force_vec;
-                    forces[j] -= force_vec;
-                }
-            }
+            forces[i].y += GRAVITY * BLOB_PARTICLE_MASS;
         }
 
         for (i, particle) in self.particles.iter_mut().enumerate() {
             // acceleration = F/m, needed for Verlet integration
-            let acceleration = forces[i] / particle.mass;
+            let acceleration = forces[i] / BLOB_PARTICLE_MASS;
 
             // Verlet integration: Pₙ₊₁ = 2Pₙ - Pₙ₋₁ + accel * dt²
             let next_pos =
                 2.0 * particle.pos - particle.prev_pos + acceleration * dt * dt;
 
-            particle.prev_pos = particle.pos;
-            particle.pos = next_pos;
+            // Apply velocity damping to reduce oscillations
+            let velocity = next_pos - particle.pos;
+            let damped_velocity = velocity * 0.98;
+            let damped_next_pos = particle.pos + damped_velocity;
 
-            let screen_width = screen_width();
-            let screen_height = screen_height();
+            particle.prev_pos = particle.pos;
+            particle.pos = damped_next_pos;
 
             /* Boundaries checks. If we hit a wall, "fake" the prev_pos such that
             it is reflected beyond the boundary. This is done through some tricky
@@ -290,6 +234,8 @@ impl Blob {
             finally apply some damping to the velocity:
                 x'ₙ₋₁ = boundary + (x - xₙ₋₁) * bounciness
             */
+            let screen_width = screen_width();
+            let screen_height = screen_height();
             if particle.pos.x < 0.0 {
                 particle.pos.x = 0.0;
                 particle.prev_pos.x =
@@ -310,8 +256,28 @@ impl Blob {
                     + (particle.pos.y - particle.prev_pos.y) * BLOB_BOUNCINESS;
             }
         }
+        
+        // Check all particle pairs for collisions and "bump" them apart
+        for i in 0..self.particles.len() {
+            for j in (i + 1)..self.particles.len() {
+                let distance =
+                    (self.particles[i].pos - self.particles[j].pos).length();
+                let min_distance = BLOB_PARTICLE_RADIUS * 2.0;
 
-        info!("{:?}", self.particles[0].pos);
+                if distance < min_distance && distance > 0.0 {
+                    let overlap = min_distance - distance;
+                    let direction = (self.particles[i].pos
+                        - self.particles[j].pos)
+                        / distance;
+
+                    let separation =
+                        direction * (overlap * 0.5 * COLLISION_DAMPING);
+
+                    self.particles[i].pos += separation;
+                    self.particles[j].pos -= separation;
+                }
+            }
+        }
     }
 
     pub fn draw(&self) {
@@ -327,8 +293,8 @@ impl Blob {
             );
         }
 
-        for particle in &self.particles {
-            draw_circle(particle.pos.x, particle.pos.y, 5.0, RED);
-        }
+        // for particle in &self.particles {
+        //     draw_circle(particle.pos.x, particle.pos.y, BLOB_PARTICLE_RADIUS, RED);
+        // }
     }
 }
