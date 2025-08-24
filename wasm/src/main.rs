@@ -4,9 +4,11 @@ mod constants;
 
 #[macroquad::main("blob")]
 async fn main() {
-    // console_error_panic_hook::set_once();
+    let initial_screen_width = screen_width();
+    let initial_screen_height = screen_height();
 
-    let mut blob = blob::Blob::new(Vec2::new(400.0, 300.0));
+    let mut blob = blob::Blob::new(Vec2 { x: initial_screen_width / 2.0, 
+        y: initial_screen_height / 2.0 });
     loop {
         clear_background(WHITE);
         blob.update(get_frame_time());
