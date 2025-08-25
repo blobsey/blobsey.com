@@ -8,7 +8,7 @@ async fn main() {
     let initial_screen_height = screen_height();
 
     let mut blob = blob::Blob::new(Vec2 {
-        x: initial_screen_width / 1.25,
+        x: initial_screen_width / 2.0,
         y: initial_screen_height / 2.0,
     });
     loop {

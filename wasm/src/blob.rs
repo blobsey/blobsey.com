@@ -2,19 +2,23 @@
 const BLOB_STIFFNESS: f32 = 150.0;
 const BLOB_BOUNCINESS: f32 = 0.50; // Sane values are 0.0 - 1.0
 const BLOB_RADIUS: f32 = 180.0;
-const BLOB_MAX_OUTER_CHORD_LENGTH: f32 = 60.0;
-const BLOB_PARTICLE_RADIUS: f32 = 23.5;
-const BLOB_PARTICLE_MASS: f32 = 0.1;
-
+const BLOB_PARTICLE_RADIUS: f32 = 9.0;
+const BLOB_PARTICLE_MASS: f32 = 0.25;
+const COLLISION_DAMPING: f32 = 1.0;
+const VELOCITY_DAMPING: f32 = 0.98;
+const EPSILON: f32 = 0.00000001;
 use crate::constants::*;
 use macroquad::{
     color::{BLACK, RED},
     math::Vec2,
     prelude::info,
+    rand,
     shapes::{draw_circle, draw_line},
     window::{screen_height, screen_width},
 };
-use std::f32::consts::{PI, SQRT_2};
+use std::f32::{
+    consts::{PI, SQRT_2},
+};
 
 /* The blob is made up of several particles, each connected to their neighbors
 by springs */
@@ -36,132 +40,121 @@ struct Spring {
 
 impl Blob {
     pub fn new(origin: Vec2) -> Blob {
-        // Create concentric rings of particles
-        let mut particles_per_layer: Vec<Vec<Particle>> = Vec::new();
+        // Poisson disk sampling to pack particles
+        const SAMPLES: usize = 4;
+        let cell_size = BLOB_PARTICLE_RADIUS * SQRT_2.recip();
+        let grid_width = (BLOB_RADIUS * 2.0 / cell_size).ceil() as usize;
+        let grid_height = grid_width;
 
-        /* Angle for the triangle made by min chord_length and radius. This will
-        be usually smaller than the actual angle, which must be strictly one of
-        2pi/3, 2pi/4, 2pi/5, etc. because those angles make n-gons */
-        let raw_angle =
-            2.0 * (BLOB_MAX_OUTER_CHORD_LENGTH / (2.0 * BLOB_RADIUS)).asin();
-        let num_outer_particles = {
-            let n = (2.0 * PI / raw_angle).ceil() as usize;
-            // Find the smallest power of 2 such that 3 * 2^k >= n
-            let target = (n + 2) / 3; // Round up n/3
-            let power_of_2 = target.next_power_of_two().max(1);
-            3 * power_of_2
-        }
-        .max(6);
+        // For checking if there are samples too close
+        let mut grid: Vec<Vec<Option<Vec2>>> =
+            vec![vec![None; grid_width]; grid_height];
 
-        let mut particles_this_layer = num_outer_particles;
-        let mut angle = (2.0 * PI) / particles_this_layer as f32;
-        let mut radius_this_layer = BLOB_RADIUS;
-        let mut chord_length = 2.0 * radius_this_layer * (angle / 2.0).sin();
-        while radius_this_layer > 0.0 {
-            let mut current_layer = Vec::new();
-            for particle_index in 0..particles_this_layer {
-                let layer_angle = 2.0
+        // Will hold "active points"
+        let mut active_list: Vec<Vec2> = Vec::new();
+
+        // Pick the first sample in the center and add to the queue
+        let first_sample = Vec2::new(0.0, 0.0);
+        let grid_x = ((first_sample.x + BLOB_RADIUS) / cell_size) as usize;
+        let grid_y = ((first_sample.y + BLOB_RADIUS) / cell_size) as usize;
+        grid[grid_x][grid_y] = Some(first_sample);
+        active_list.push(first_sample);
+
+        while !active_list.is_empty() {
+            let i =
+                (rand::gen_range(0.0, 1.0) * active_list.len() as f32) as usize;
+            let parent = active_list[i];
+
+            // Try to generate k candidates around this parent
+            let mut found = false;
+            for j in 0..SAMPLES {
+                // Generate candidates at random angles, just far enough away
+                let angle = 2.0
                     * PI
-                    * (particle_index as f32 / particles_this_layer as f32);
-                let x = origin.x + radius_this_layer * layer_angle.cos();
-                let y = origin.y + radius_this_layer * layer_angle.sin();
+                    * (rand::gen_range(0.0, 1.0) + j as f32 / SAMPLES as f32);
+                let radius = BLOB_PARTICLE_RADIUS * 2.0 + EPSILON;
+                let x = parent.x + radius * angle.cos();
+                let y = parent.y + radius * angle.sin();
+                let candidate = Vec2 { x: x, y: y };
+                let distance_from_center = candidate.length();
+                if distance_from_center <= BLOB_RADIUS {
+                    // Check if candidate is far enough from existing samples
+                    let candidate_grid_x =
+                        ((candidate.x + BLOB_RADIUS) / cell_size) as usize;
+                    let candidate_grid_y =
+                        ((candidate.y + BLOB_RADIUS) / cell_size) as usize;
 
-                // Add to current layer
-                current_layer.push(Particle {
-                    pos: Vec2 { x: x, y: y },
-                    prev_pos: Vec2 { x: x, y: y },
-                });
-            }
-            particles_per_layer.push(current_layer);
-            /* Super ugly, but this will redo the chord_length calculation for
-            each layer based on the new particle count */
-            particles_this_layer = particles_this_layer / 2;
-            angle = (2.0 * PI) / particles_this_layer as f32;
-            radius_this_layer -= chord_length;
-            chord_length = 2.0 * radius_this_layer * (angle / 2.0).sin();
-        }
+                    let mut is_far_enough = true;
 
-        let mut springs = Vec::new();
-        let mut layer_start = 0;
-        for (layer_index, layer) in particles_per_layer.iter().enumerate() {
-            // Connect neighbors within the same layer
-            for i in 0..layer.len() {
-                let next_i = (i + 1) % layer.len(); // Wrap around to form ring
-                let rest_length =
-                    (layer[i].pos - layer[(i + 1) % layer.len()].pos).length();
+                    'outer: for step_x in -2..=2 {
+                        let check_x = candidate_grid_x as i32 + step_x;
+                        if check_x < 0 || check_x >= grid_width as i32 {
+                            // Out of X bounds
+                            continue;
+                        }
 
-                // Calculate the index it will have after flattening
-                let particle_a = layer_start + i;
-                let particle_b = layer_start + next_i;
+                        for step_y in -2..=2 {
+                            let check_y = candidate_grid_y as i32 + step_y;
+                            if check_y < 0 || check_y >= grid_height as i32 {
+                                // Out of Y bounds
+                                continue;
+                            }
 
-                springs.push(Spring {
-                    particle_a,
-                    particle_b,
-                    rest_length: rest_length,
-                });
-            }
+                            if let Some(existing_sample) =
+                                grid[check_x as usize][check_y as usize]
+                            {
+                                let distance =
+                                    (candidate - existing_sample).length();
+                                if distance < BLOB_PARTICLE_RADIUS * 2.0 {
+                                    is_far_enough = false;
+                                    break 'outer;
+                                }
+                            }
+                        }
+                    }
 
-            // Cross-layer connections (isosceles triangles)
-            if layer_index > 0 {
-                let outer_layer = &particles_per_layer[layer_index - 1];
-                let outer_layer_start = layer_start - outer_layer.len(); // Previous layer start
-
-                for i in 0..layer.len() {
-                    let inner_particle = layer_start + i;
-
-                    // Calculate relative indices in the outer layer
-                    let outer_same_idx = (i * 2) % outer_layer.len();
-                    let outer_left_idx = (outer_same_idx + outer_layer.len()
-                        - 1)
-                        % outer_layer.len();
-                    let outer_right_idx =
-                        (outer_same_idx + 1) % outer_layer.len();
-
-                    // Create springs to each of the 3 outer particles
-                    for &outer_idx in
-                        &[outer_same_idx, outer_left_idx, outer_right_idx]
-                    {
-                        let outer_particle = outer_layer_start + outer_idx;
-                        let rest_length = (layer[i].pos
-                            - outer_layer[outer_idx].pos)
-                            .length();
-
-                        springs.push(Spring {
-                            particle_a: inner_particle,
-                            particle_b: outer_particle,
-                            rest_length,
-                        });
+                    if is_far_enough {
+                        // Found a valid candidate, add to grid and active_list
+                        grid[candidate_grid_x][candidate_grid_y] = Some(candidate);
+                        active_list.push(candidate);
+                        found = true;
+                        break; // Break from SAMPLES loop
                     }
                 }
             }
-            layer_start += layer.len();
+
+            if !found {
+                active_list.swap_remove(i);
+            }
         }
 
-        // Store innermost layer info before adding center
-        let innermost_size = particles_per_layer.last().unwrap().len();
+        // Create particles pased on the Poisson disc sampling
+        let particles: Vec<Particle> = grid
+            .iter()
+            .flatten()
+            .filter_map(|&sample| sample)
+            .map(|sample| Particle {
+                pos: sample + origin, // Translate to origin
+                prev_pos: sample + origin,
+            })
+            .collect();
 
-        // Add center particle as final layer
-        particles_per_layer.push(vec![Particle {
-            pos: origin,
-            prev_pos: origin,
-        }]);
+        info!("{:?}", grid);
 
-        // Flatten all particles
-        let particles: Vec<Particle> =
-            particles_per_layer.into_iter().flatten().collect();
-
-        // Connect center (last particle) to innermost ring
-        let center_idx = particles.len() - 1;
-        let innermost_start = center_idx - innermost_size;
-        for i in 0..innermost_size {
-            let inner_idx = innermost_start + i;
-            springs.push(Spring {
-                particle_a: center_idx,
-                particle_b: inner_idx,
-                rest_length: (particles[center_idx].pos
-                    - particles[inner_idx].pos)
-                    .length(),
-            });
+        // Create springs between nearby particles
+        let mut springs: Vec<Spring> = Vec::new();
+        let spring_distance = BLOB_PARTICLE_RADIUS * 4.0; // A bit more than 2x for buffer
+        for i in 0..particles.len() {
+            for j in (i + 1)..particles.len() {
+                let distance = (particles[i].pos - particles[j].pos).length();
+                if distance <= spring_distance {
+                    springs.push(Spring {
+                        particle_a: i,
+                        particle_b: j,
+                        rest_length: distance, // Use current distance as rest length
+                    });
+                }
+            }
         }
 
         Blob {
@@ -207,7 +200,7 @@ impl Blob {
 
             // Apply velocity damping to reduce oscillations
             let velocity = next_pos - particle.pos;
-            let damped_velocity = velocity * 0.98;
+            let damped_velocity = velocity * VELOCITY_DAMPING;
             let damped_next_pos = particle.pos + damped_velocity;
 
             particle.prev_pos = particle.pos;
@@ -256,7 +249,7 @@ impl Blob {
                     + (particle.pos.y - particle.prev_pos.y) * BLOB_BOUNCINESS;
             }
         }
-        
+
         // Check all particle pairs for collisions and "bump" them apart
         for i in 0..self.particles.len() {
             for j in (i + 1)..self.particles.len() {
@@ -293,8 +286,13 @@ impl Blob {
             );
         }
 
-        // for particle in &self.particles {
-        //     draw_circle(particle.pos.x, particle.pos.y, BLOB_PARTICLE_RADIUS, RED);
-        // }
+        for particle in &self.particles {
+            draw_circle(
+                particle.pos.x,
+                particle.pos.y,
+                BLOB_PARTICLE_RADIUS * 0.5,
+                RED,
+            );
+        }
     }
 }
