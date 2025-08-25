@@ -1,11 +1,10 @@
 // Blob constants
-const BLOB_STIFFNESS: f32 = 150.0;
+const BLOB_STIFFNESS: f32 = 100.0;
 const BLOB_BOUNCINESS: f32 = 0.50; // Sane values are 0.0 - 1.0
 const BLOB_RADIUS: f32 = 180.0;
-const BLOB_PARTICLE_RADIUS: f32 = 9.0;
+const BLOB_PARTICLE_RADIUS: f32 = 10.0;
 const BLOB_PARTICLE_MASS: f32 = 0.25;
-const COLLISION_DAMPING: f32 = 1.0;
-const VELOCITY_DAMPING: f32 = 0.98;
+const VELOCITY_DAMPING: f32 = 0.975;
 const EPSILON: f32 = 0.00000001;
 use crate::constants::*;
 use macroquad::{
@@ -16,15 +15,14 @@ use macroquad::{
     shapes::{draw_circle, draw_line},
     window::{screen_height, screen_width},
 };
-use std::f32::{
-    consts::{PI, SQRT_2},
-};
+use std::f32::consts::{PI, SQRT_2};
 
 /* The blob is made up of several particles, each connected to their neighbors
 by springs */
 pub struct Blob {
     particles: Vec<Particle>,
     springs: Vec<Spring>,
+    outline_particles_indices: Vec<usize>,
 }
 
 struct Particle {
@@ -41,7 +39,7 @@ struct Spring {
 impl Blob {
     pub fn new(origin: Vec2) -> Blob {
         // Poisson disk sampling to pack particles
-        const SAMPLES: usize = 4;
+        const SAMPLES: usize = 30;
         let cell_size = BLOB_PARTICLE_RADIUS * SQRT_2.recip();
         let grid_width = (BLOB_RADIUS * 2.0 / cell_size).ceil() as usize;
         let grid_height = grid_width;
@@ -77,7 +75,7 @@ impl Blob {
                 let y = parent.y + radius * angle.sin();
                 let candidate = Vec2 { x: x, y: y };
                 let distance_from_center = candidate.length();
-                if distance_from_center <= BLOB_RADIUS {
+                if distance_from_center <= BLOB_RADIUS - BLOB_PARTICLE_RADIUS {
                     // Check if candidate is far enough from existing samples
                     let candidate_grid_x =
                         ((candidate.x + BLOB_RADIUS) / cell_size) as usize;
@@ -115,7 +113,8 @@ impl Blob {
 
                     if is_far_enough {
                         // Found a valid candidate, add to grid and active_list
-                        grid[candidate_grid_x][candidate_grid_y] = Some(candidate);
+                        grid[candidate_grid_x][candidate_grid_y] =
+                            Some(candidate);
                         active_list.push(candidate);
                         found = true;
                         break; // Break from SAMPLES loop
@@ -129,7 +128,7 @@ impl Blob {
         }
 
         // Create particles pased on the Poisson disc sampling
-        let particles: Vec<Particle> = grid
+        let mut particles: Vec<Particle> = grid
             .iter()
             .flatten()
             .filter_map(|&sample| sample)
@@ -139,11 +138,30 @@ impl Blob {
             })
             .collect();
 
-        info!("{:?}", grid);
+        // Add outline particles
+        let circumference = 2.0 * PI * BLOB_RADIUS;
+        let num_outline_particles = (circumference / (BLOB_PARTICLE_RADIUS * 2.0)).round() as
+        usize;
+        let mut outline_particle_indices = Vec::new();
+
+        for i in 0..num_outline_particles {
+            let angle = 2.0 * PI * i as f32 / num_outline_particles as f32;
+            let outline_pos = Vec2::new(
+                BLOB_RADIUS * angle.cos(),
+                BLOB_RADIUS * angle.sin()
+            );
+
+            outline_particle_indices.push(particles.len());
+
+            particles.push(Particle {
+                pos: outline_pos + origin,
+                prev_pos: outline_pos + origin,
+            });
+        }
 
         // Create springs between nearby particles
         let mut springs: Vec<Spring> = Vec::new();
-        let spring_distance = BLOB_PARTICLE_RADIUS * 4.0; // A bit more than 2x for buffer
+        let spring_distance = BLOB_PARTICLE_RADIUS * 2.75; // Connect to close neighbors
         for i in 0..particles.len() {
             for j in (i + 1)..particles.len() {
                 let distance = (particles[i].pos - particles[j].pos).length();
@@ -160,6 +178,7 @@ impl Blob {
         Blob {
             particles: particles,
             springs: springs,
+            outline_particles_indices: outline_particle_indices,
         }
     }
 
@@ -264,7 +283,7 @@ impl Blob {
                         / distance;
 
                     let separation =
-                        direction * (overlap * 0.5 * COLLISION_DAMPING);
+                        direction * (overlap * 0.5);
 
                     self.particles[i].pos += separation;
                     self.particles[j].pos -= separation;
@@ -274,24 +293,20 @@ impl Blob {
     }
 
     pub fn draw(&self) {
-        for spring in &self.springs {
-            let pos_a = self.particles[spring.particle_a].pos;
-            let pos_b = self.particles[spring.particle_b].pos;
+        for i in 0..self.outline_particles_indices.len() {
+            let j = (i + 1) % self.outline_particles_indices.len();
+
+            let index_i = self.outline_particles_indices[i];
+            let index_j = self.outline_particles_indices[j];
+
+            let pos_a = self.particles[index_i].pos;
+            let pos_b = self.particles[index_j].pos;
 
             draw_line(
                 pos_a.x, pos_a.y, // start point
                 pos_b.x, pos_b.y, // end point
-                1.0,     // thickness
+                10.0,     // thickness
                 BLACK,   // color
-            );
-        }
-
-        for particle in &self.particles {
-            draw_circle(
-                particle.pos.x,
-                particle.pos.y,
-                BLOB_PARTICLE_RADIUS * 0.5,
-                RED,
             );
         }
     }

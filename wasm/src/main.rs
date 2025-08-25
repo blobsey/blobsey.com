@@ -13,6 +13,7 @@ async fn main() {
     });
     loop {
         clear_background(WHITE);
+        draw_text(&format!("FPS: {}", get_fps()), 0., 16., 32., BLACK);
 
         blob.update(get_frame_time().min(1.0 / 120.0));
         blob.draw();
