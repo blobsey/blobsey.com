@@ -1,16 +1,16 @@
 // Blob constants
 const BLOB_STIFFNESS: f32 = 100.0;
-const BLOB_BOUNCINESS: f32 = 0.50; // Sane values are 0.0 - 1.0
-const BLOB_RADIUS: f32 = 180.0;
-const BLOB_PARTICLE_RADIUS: f32 = 10.0;
+const BLOB_BOUNCINESS: f32 = 0.25; // Sane values are 0.0 - 1.0
+const BLOB_RADIUS: f32 = 120.0;
+const BLOB_PARTICLE_RADIUS: f32 = 12.0;
 const BLOB_PARTICLE_MASS: f32 = 0.25;
-const VELOCITY_DAMPING: f32 = 0.975;
+const BLOB_OUTLINE_THICKNESS: f32 = 20.0;
+const GRAVITY: f32 = 600.0;
+const VELOCITY_DAMPING: f32 = 0.98;
 const EPSILON: f32 = 0.00000001;
-use crate::constants::*;
 use macroquad::{
-    color::{BLACK, RED},
+    color::BLACK,
     math::Vec2,
-    prelude::info,
     rand,
     shapes::{draw_circle, draw_line},
     window::{screen_height, screen_width},
@@ -39,7 +39,7 @@ struct Spring {
 impl Blob {
     pub fn new(origin: Vec2) -> Blob {
         // Poisson disk sampling to pack particles
-        const SAMPLES: usize = 30;
+        const SAMPLES: usize = 100;
         let cell_size = BLOB_PARTICLE_RADIUS * SQRT_2.recip();
         let grid_width = (BLOB_RADIUS * 2.0 / cell_size).ceil() as usize;
         let grid_height = grid_width;
@@ -140,16 +140,14 @@ impl Blob {
 
         // Add outline particles
         let circumference = 2.0 * PI * BLOB_RADIUS;
-        let num_outline_particles = (circumference / (BLOB_PARTICLE_RADIUS * 2.0)).round() as
-        usize;
+        let num_outline_particles =
+            (circumference / (BLOB_PARTICLE_RADIUS * 2.0)).round() as usize;
         let mut outline_particle_indices = Vec::new();
 
         for i in 0..num_outline_particles {
             let angle = 2.0 * PI * i as f32 / num_outline_particles as f32;
-            let outline_pos = Vec2::new(
-                BLOB_RADIUS * angle.cos(),
-                BLOB_RADIUS * angle.sin()
-            );
+            let outline_pos =
+                Vec2::new(BLOB_RADIUS * angle.cos(), BLOB_RADIUS * angle.sin());
 
             outline_particle_indices.push(particles.len());
 
@@ -282,8 +280,7 @@ impl Blob {
                         - self.particles[j].pos)
                         / distance;
 
-                    let separation =
-                        direction * (overlap * 0.5);
+                    let separation = direction * (overlap * 0.5);
 
                     self.particles[i].pos += separation;
                     self.particles[j].pos -= separation;
@@ -294,19 +291,41 @@ impl Blob {
 
     pub fn draw(&self) {
         for i in 0..self.outline_particles_indices.len() {
-            let j = (i + 1) % self.outline_particles_indices.len();
+            let prev = (i + self.outline_particles_indices.len() - 1)
+                % self.outline_particles_indices.len();
+            let curr = i;
+            let next = (i + 1) % self.outline_particles_indices.len();
 
-            let index_i = self.outline_particles_indices[i];
-            let index_j = self.outline_particles_indices[j];
+            let pos_prev =
+                self.particles[self.outline_particles_indices[prev]].pos;
+            let pos_curr =
+                self.particles[self.outline_particles_indices[curr]].pos;
+            let pos_next =
+                self.particles[self.outline_particles_indices[next]].pos;
 
-            let pos_a = self.particles[index_i].pos;
-            let pos_b = self.particles[index_j].pos;
+            // Smooth current position by averaging with neighbors
+            let smooth_pos = (pos_prev + pos_curr * 2.0 + pos_next) * 0.25;
+
+            let next_smooth = (pos_curr
+                + pos_next * 2.0
+                + self.particles[self.outline_particles_indices
+                    [(next + 1) % self.outline_particles_indices.len()]]
+                .pos)
+                * 0.25;
+
+            draw_circle(
+                smooth_pos.x, 
+                smooth_pos.y, 
+                BLOB_OUTLINE_THICKNESS / 2.0, 
+                BLACK);
 
             draw_line(
-                pos_a.x, pos_a.y, // start point
-                pos_b.x, pos_b.y, // end point
-                10.0,     // thickness
-                BLACK,   // color
+                smooth_pos.x,
+                smooth_pos.y,
+                next_smooth.x,
+                next_smooth.y,
+                BLOB_OUTLINE_THICKNESS,
+                BLACK,
             );
         }
     }

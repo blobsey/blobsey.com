@@ -1,6 +1,5 @@
 use macroquad::prelude::*;
 mod blob;
-mod constants;
 
 #[macroquad::main("blob")]
 async fn main() {
