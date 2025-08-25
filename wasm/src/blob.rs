@@ -1,11 +1,11 @@
 // Blob constants
-const BLOB_STIFFNESS: f32 = 100.0;
+const BLOB_STIFFNESS: f32 = 180.0;
 const BLOB_BOUNCINESS: f32 = 0.25; // Sane values are 0.0 - 1.0
-const BLOB_RADIUS: f32 = 120.0;
-const BLOB_PARTICLE_RADIUS: f32 = 12.0;
+const BLOB_RADIUS: f32 = 160.0;
+const BLOB_PARTICLE_RADIUS: f32 = 20.0;
 const BLOB_PARTICLE_MASS: f32 = 0.25;
 const BLOB_OUTLINE_THICKNESS: f32 = 20.0;
-const GRAVITY: f32 = 600.0;
+const GRAVITY: f32 = 1600.0;
 const VELOCITY_DAMPING: f32 = 0.98;
 const EPSILON: f32 = 0.00000001;
 use macroquad::{
@@ -202,6 +202,10 @@ impl Blob {
             }
         }
 
+        for i in 0..forces.len() {
+            forces[i] *= 0.95;
+        }
+
         // Gravity
         for i in 0..forces.len() {
             forces[i].y += GRAVITY * BLOB_PARTICLE_MASS;
@@ -314,10 +318,11 @@ impl Blob {
                 * 0.25;
 
             draw_circle(
-                smooth_pos.x, 
-                smooth_pos.y, 
-                BLOB_OUTLINE_THICKNESS / 2.0, 
-                BLACK);
+                smooth_pos.x,
+                smooth_pos.y,
+                BLOB_OUTLINE_THICKNESS / 2.0,
+                BLACK,
+            );
 
             draw_line(
                 smooth_pos.x,
