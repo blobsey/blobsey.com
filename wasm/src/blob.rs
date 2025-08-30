@@ -6,7 +6,8 @@ const BLOB_PARTICLE_RADIUS: f32 = 16.0;
 const BLOB_MASS: f32 = 32.0;
 const BLOB_OUTLINE_THICKNESS: f32 = 20.0;
 const GRAVITY: f32 = 1600.0;
-const VELOCITY_DAMPING: f32 = 0.98;
+const VELOCITY_DAMPING: f32 = 0.99;
+const BLOB_MAX_SPEED: f32 = 30.0;
 const EPSILON: f32 = 0.00000001;
 use macroquad::{
     color::{BLACK, BLUE, GREEN, RED},
@@ -244,6 +245,18 @@ impl Blob {
 
             particle.prev_pos = particle.pos;
             particle.pos = damped_next_pos;
+
+            let velocity = particle.pos - particle.prev_pos;
+            let speed = velocity.length();
+            if speed > 0.0 {
+                // S-curve using tanh for smooth limiting
+                let normalized_speed = speed / BLOB_MAX_SPEED;
+                let s_curve_factor = normalized_speed.tanh();
+                let limited_speed = s_curve_factor * BLOB_MAX_SPEED;
+
+                let limited_velocity = velocity.normalize() * limited_speed;
+                particle.prev_pos = particle.pos - limited_velocity;
+            }
 
             /* Boundaries checks. If we hit a wall, "fake" the prev_pos such that
             it is reflected beyond the boundary. This is done through some tricky
