@@ -14,6 +14,13 @@ async fn main() {
         clear_background(WHITE);
         draw_text(&format!("FPS: {}", get_fps()), 0., 16., 32., BLACK);
 
+        if is_mouse_button_down(MouseButton::Left) {
+            let blob_pos = blob.get_center_pos();
+            let mouse_pos = Vec2::from(mouse_position());
+            let direction = (mouse_pos - blob_pos) * 0.001; // Scale it down
+            blob.move_blob(direction);
+        }
+
         blob.update(get_frame_time().min(1.0 / 120.0));
         blob.draw();
         next_frame().await

@@ -2,14 +2,14 @@
 const BLOB_STIFFNESS: f32 = 180.0;
 const BLOB_BOUNCINESS: f32 = 0.25; // Sane values are 0.0 - 1.0
 const BLOB_RADIUS: f32 = 160.0;
-const BLOB_PARTICLE_RADIUS: f32 = 20.0;
-const BLOB_PARTICLE_MASS: f32 = 0.25;
+const BLOB_PARTICLE_RADIUS: f32 = 16.0;
+const BLOB_MASS: f32 = 32.0;
 const BLOB_OUTLINE_THICKNESS: f32 = 20.0;
 const GRAVITY: f32 = 1600.0;
 const VELOCITY_DAMPING: f32 = 0.98;
 const EPSILON: f32 = 0.00000001;
 use macroquad::{
-    color::BLACK,
+    color::{BLACK, BLUE, GREEN, RED},
     math::Vec2,
     rand,
     shapes::{draw_circle, draw_line},
@@ -17,12 +17,15 @@ use macroquad::{
 };
 use std::f32::consts::{PI, SQRT_2};
 
+const DEBUG: bool = false;
+
 /* The blob is made up of several particles, each connected to their neighbors
 by springs */
 pub struct Blob {
     particles: Vec<Particle>,
     springs: Vec<Spring>,
     outline_particles_indices: Vec<usize>,
+    center_particle_index: usize, // Nice to have as a quick center-of-mass
 }
 
 struct Particle {
@@ -138,6 +141,17 @@ impl Blob {
             })
             .collect();
 
+        let mut center_particle_index = 0;
+        let mut min_distance = (particles[0].pos - origin).length();
+
+        for (i, particle) in particles.iter().enumerate().skip(1) {
+            let distance = (particle.pos - origin).length();
+            if distance < min_distance {
+                min_distance = distance;
+                center_particle_index = i;
+            }
+        }
+
         // Add outline particles
         let circumference = 2.0 * PI * BLOB_RADIUS;
         let num_outline_particles =
@@ -159,7 +173,7 @@ impl Blob {
 
         // Create springs between nearby particles
         let mut springs: Vec<Spring> = Vec::new();
-        let spring_distance = BLOB_PARTICLE_RADIUS * 2.75; // Connect to close neighbors
+        let spring_distance = BLOB_PARTICLE_RADIUS * 3.25; // Connect to close neighbors
         for i in 0..particles.len() {
             for j in (i + 1)..particles.len() {
                 let distance = (particles[i].pos - particles[j].pos).length();
@@ -177,6 +191,7 @@ impl Blob {
             particles: particles,
             springs: springs,
             outline_particles_indices: outline_particle_indices,
+            center_particle_index: center_particle_index,
         }
     }
 
@@ -202,18 +217,21 @@ impl Blob {
             }
         }
 
+        // Damp the spring forces
         for i in 0..forces.len() {
-            forces[i] *= 0.95;
+            forces[i] *= 0.75;
         }
+
+        let particle_mass = BLOB_MASS / self.particles.len() as f32;
 
         // Gravity
         for i in 0..forces.len() {
-            forces[i].y += GRAVITY * BLOB_PARTICLE_MASS;
+            forces[i].y += GRAVITY * particle_mass;
         }
 
         for (i, particle) in self.particles.iter_mut().enumerate() {
             // acceleration = F/m, needed for Verlet integration
-            let acceleration = forces[i] / BLOB_PARTICLE_MASS;
+            let acceleration = forces[i] / particle_mass;
 
             // Verlet integration: Pₙ₊₁ = 2Pₙ - Pₙ₋₁ + accel * dt²
             let next_pos =
@@ -293,6 +311,18 @@ impl Blob {
         }
     }
 
+    pub fn get_center_pos(&self) -> Vec2 {
+        return self.particles[self.center_particle_index].pos;
+    }
+
+    pub fn move_blob(&mut self, force_vec: Vec2) {
+        /* Since we're using Verlet integration to apply force we
+        "fake" it by moving the prev_pos to be further away */
+        for particle in &mut self.particles {
+            particle.prev_pos -= force_vec;
+        }
+    }
+
     pub fn draw(&self) {
         for i in 0..self.outline_particles_indices.len() {
             let prev = (i + self.outline_particles_indices.len() - 1)
@@ -332,6 +362,39 @@ impl Blob {
                 BLOB_OUTLINE_THICKNESS,
                 BLACK,
             );
+
+            if DEBUG {
+                // Draw all springs as thin lines
+                for spring in &self.springs {
+                    let particle_a_pos = self.particles[spring.particle_a].pos;
+                    let particle_b_pos = self.particles[spring.particle_b].pos;
+
+                    draw_line(
+                        particle_a_pos.x,
+                        particle_a_pos.y,
+                        particle_b_pos.x,
+                        particle_b_pos.y,
+                        1.0, // Thin line
+                        GREEN,
+                    );
+                }
+
+                // Draw all particles as small circles
+                for (i, particle) in self.particles.iter().enumerate() {
+                    let color = if self.outline_particles_indices.contains(&i) {
+                        RED // Outline particles in red
+                    } else {
+                        BLUE // Internal particles in blue
+                    };
+
+                    draw_circle(
+                        particle.pos.x,
+                        particle.pos.y,
+                        5.0, // Small radius for debug
+                        color,
+                    );
+                }
+            }
         }
     }
 }
