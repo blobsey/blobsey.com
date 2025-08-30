@@ -1,6 +1,6 @@
 // Blob constants
 const BLOB_STIFFNESS: f32 = 180.0;
-const BLOB_BOUNCINESS: f32 = 0.25; // Sane values are 0.0 - 1.0
+const BLOB_BOUNCINESS: f32 = 0.1; // Sane values are 0.0 - 1.0
 const BLOB_RADIUS: f32 = 160.0;
 const BLOB_PARTICLE_RADIUS: f32 = 16.0;
 const BLOB_MASS: f32 = 32.0;
@@ -79,7 +79,7 @@ impl Blob {
                 let y = parent.y + radius * angle.sin();
                 let candidate = Vec2 { x: x, y: y };
                 let distance_from_center = candidate.length();
-                if distance_from_center <= BLOB_RADIUS - BLOB_PARTICLE_RADIUS {
+                if distance_from_center <= BLOB_RADIUS - radius {
                     // Check if candidate is far enough from existing samples
                     let candidate_grid_x =
                         ((candidate.x + BLOB_RADIUS) / cell_size) as usize;
@@ -172,20 +172,46 @@ impl Blob {
             });
         }
 
-        // Create springs between nearby particles
+        // Create springs connecting particles to the closest 6 inner particles
         let mut springs: Vec<Spring> = Vec::new();
-        let spring_distance = BLOB_PARTICLE_RADIUS * 3.25; // Connect to close neighbors
         for i in 0..particles.len() {
-            for j in (i + 1)..particles.len() {
-                let distance = (particles[i].pos - particles[j].pos).length();
-                if distance <= spring_distance {
-                    springs.push(Spring {
-                        particle_a: i,
-                        particle_b: j,
-                        rest_length: distance, // Use current distance as rest length
-                    });
-                }
-            }
+            let mut candidates: Vec<Spring> = (0..particles.len())
+                .filter(|&j| j != i && !outline_particle_indices.contains(&j))
+                .map(|j| Spring {
+                    particle_a: i,
+                    particle_b: j,
+                    rest_length: (particles[i].pos - particles[j].pos).length(),
+                })
+                .collect();
+
+            candidates.sort_by(|spring_a, spring_b| {
+                spring_a
+                    .rest_length
+                    .partial_cmp(&spring_b.rest_length)
+                    .unwrap()
+            });
+
+            let num_connections = if outline_particle_indices.contains(&i) {
+                6
+            } else {
+                8
+            };
+            springs.extend(candidates.into_iter().take(num_connections));
+        }
+
+        // Connect outline particles to their neighbors
+        for i in 0..outline_particle_indices.len() {
+            let current_idx = outline_particle_indices[i];
+            let next_idx = outline_particle_indices
+                [(i + 1) % outline_particle_indices.len()];
+
+            springs.push(Spring {
+                particle_a: current_idx,
+                particle_b: next_idx,
+                rest_length: (particles[current_idx].pos
+                    - particles[next_idx].pos)
+                    .length(),
+            });
         }
 
         Blob {
@@ -220,7 +246,7 @@ impl Blob {
 
         // Damp the spring forces
         for i in 0..forces.len() {
-            forces[i] *= 0.75;
+            forces[i] *= 0.45;
         }
 
         let particle_mass = BLOB_MASS / self.particles.len() as f32;
