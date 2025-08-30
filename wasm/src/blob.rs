@@ -7,7 +7,7 @@ const BLOB_MASS: f32 = 32.0;
 const BLOB_OUTLINE_THICKNESS: f32 = 20.0;
 const GRAVITY: f32 = 1600.0;
 const VELOCITY_DAMPING: f32 = 0.99;
-const BLOB_MAX_SPEED: f32 = 30.0;
+const BLOB_MAX_SPEED: f32 = 48.0;
 const EPSILON: f32 = 0.00000001;
 use macroquad::{
     color::{BLACK, BLUE, GREEN, RED},
